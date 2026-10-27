@@ -1,6 +1,7 @@
 package com.audio_arcade.arcadeshare
 
 import android.content.Context
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import com.audio_arcade.arcadeshare.callback.GuestCallback
@@ -20,17 +21,25 @@ class ArcadeShareGuest(
     private var roomCode:  String           = ""
     private val handler    = Handler(Looper.getMainLooper())
 
+    internal var onReleased: (() -> Unit)? = null
+
     fun setCallback(cb: GuestCallback) { callback = cb }
 
     fun joinRoom(code: String) {
+        ws?.disconnect()   // un seul socket à la fois
         roomCode = code.trim().uppercase()
-        val serial = getSerial()
+
+        // JSONObject : un pseudo contenant un guillemet ou un antislash ne casse plus le message
+        val join = JSONObject().apply {
+            put("type",         "join_room")
+            put("code",         roomCode)
+            put("username",     username)
+            put("deviceSerial", getSerial())
+        }.toString()
 
         ws = ArcadeWebSocket(
             serverUrl = serverUrl,
-            onOpen    = {
-                ws?.send("""{"type":"join_room","code":"$roomCode","username":"$username","deviceSerial":"$serial"}""")
-            },
+            onOpen    = { ws?.send(join) },
             onMessage = { raw -> handleMessage(raw) },
             onError   = { err -> callback?.onError(err) },
             onClosed  = { callback?.onDisconnected() }
@@ -40,7 +49,10 @@ class ArcadeShareGuest(
 
     fun leaveRoom() {
         if (roomCode.isNotEmpty()) {
-            ws?.send("""{"type":"leave_room","code":"$roomCode"}""")
+            ws?.send(JSONObject().apply {
+                put("type", "leave_room")
+                put("code", roomCode)
+            }.toString())
         }
         ws?.disconnect()
         ws = null
@@ -50,11 +62,21 @@ class ArcadeShareGuest(
     fun release() {
         leaveRoom()
         callback = null
+        onReleased?.invoke()
+        onReleased = null
     }
 
     fun getStreamUrl(): String? {
         if (roomCode.isEmpty()) return null
-        return "$httpUrl/music/$roomCode"
+        return "$httpUrl/music/$roomCode?${ArcadeShare.authQuery()}"
+    }
+
+    private fun buildState(json: JSONObject): ShareState {
+        val base = json.toShareState()
+        if (base.currentFile.isEmpty()) return base
+        // appId/versionId : exigés si MUSIC_REQUIRE_AUTH=true ; « f » évite qu'ExoPlayer resserve l'ancien fichier
+        val url = "$httpUrl/music/$roomCode?${ArcadeShare.authQuery()}&f=${Uri.encode(base.currentFile)}"
+        return base.copy(audioUrl = url)
     }
 
     private fun handleMessage(raw: String) {
@@ -80,23 +102,21 @@ class ArcadeShareGuest(
         }
     }
 
-    /** Parse le JSON reçu en ShareState, puis reconstruit audioUrl côté client. */
-    private fun buildState(json: JSONObject): ShareState {
-        val base = json.toShareState()
-        return if (base.currentFile.isNotEmpty()) {
-            base.copy(audioUrl = "$httpUrl/music/$roomCode")
-        } else {
-            base
-        }
-    }
-
     private fun getSerial(): String = DeviceId.get(context)
 }
+
+/** Au-delà de ce délai, l'écart d'horloge est considéré comme faux et ignoré. */
+private const val MAX_LATENCY_MS = 5_000L
 
 // ── Extension JSONObject → ShareState ─────────────────────────────────────────
 internal fun JSONObject.toShareState(): ShareState {
     val serverTs = optLong("timestamp", 0L)
-    val latency  = if (serverTs > 0) (System.currentTimeMillis() - serverTs).coerceAtLeast(0) else 0L
+
+    // Latence estimée = heure locale - heure du serveur. Si l'horloge du téléphone est en avance ou
+    // en retard (ou si l'état date d'avant un redémarrage du serveur), l'écart n'a aucun sens :
+    // on l'ignore plutôt que de décaler la lecture de plusieurs minutes.
+    val rawLatency = if (serverTs > 0) System.currentTimeMillis() - serverTs else 0L
+    val latency    = if (rawLatency in 0L..MAX_LATENCY_MS) rawLatency else 0L
 
     // Le serveur envoie position/duration en SECONDES (voir ArcadeShareHost.sendStateToServer) → conversion en ms
     val positionMs = (optDouble("position", 0.0) * 1000).toLong()

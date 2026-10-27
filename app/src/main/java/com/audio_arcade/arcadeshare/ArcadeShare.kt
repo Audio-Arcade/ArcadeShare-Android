@@ -71,12 +71,47 @@ object ArcadeShare {
         this.httpUrl   = httpUrl.trimEnd('/')
     }
 
+    @Volatile var isCertified: Boolean? = null
+        internal set(value) {
+            field = value
+            mainHandler.post { onCertificationChanged?.invoke(value) }
+        }
+
+    var onCertificationChanged: ((Boolean?) -> Unit)? = null
+
+    /**
+     * Statut public d'une application d'après son nom : "certified", "partial", "unverified",
+     * "revoked", ou null si inconnu / erreur réseau. Pas besoin d'être connecté à une room.
+     * Le callback est appelé sur le thread principal.
+     */
+    fun fetchCertificationStatus(appName: String, onResult: (String?) -> Unit) {
+        checkInit()
+        val request = Request.Builder()
+            .url("$httpUrl/verifier?nom=${Uri.encode(appName)}")
+            .build()
+
+        httpClient.newCall(request).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+                mainHandler.post { onResult(null) }
+            }
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                val status = try {
+                    if (!response.isSuccessful) null
+                    else JSONObject(response.body?.string() ?: "{}")
+                        .optJSONArray("results")?.optJSONObject(0)?.optString("status")
+                } catch (_: Exception) { null } finally { response.close() }
+                mainHandler.post { onResult(status) }
+            }
+        })
+    }
+
     // ── Hôtes ─────────────────────────────────────────────────────────────────
     fun createHost(username: String): ArcadeShareHost {
         checkInit()
         val host = ArcadeShareHost(appContext!!, serverUrl, httpUrl, username)
         host.onRoomReady = { onHostReady(it) }
         host.onActivityChanged = { onSharingChanged?.invoke() }
+        host.onFailed = { activeHosts.remove(it) }
         activeHosts.add(host)
         return host
     }
@@ -104,7 +139,6 @@ object ArcadeShare {
         codes.forEach { rejoinHost(username, it) }
     }
 
-    /** Supprime la room [code] côté serveur et retire son host. */
     /** Supprime la room : stoppe son host local puis DELETE côté serveur. */
     fun deleteRoom(code: String, onResult: (Boolean) -> Unit = {}) {
         checkInit()
@@ -132,20 +166,24 @@ object ArcadeShare {
     /** Diffuse l'état de lecture à toutes les rooms actives. */
     fun broadcastState(state: ShareState) {
         lastState = state
-        activeHosts.forEach { it.updateState(state) }
+        activeHosts.toList().forEach { it.updateState(state) }
     }
 
     /** Envoie la piste courante à toutes les rooms (upload dédupliqué par [key]). */
     fun shareTrack(key: String, uri: Uri) {
         lastTrackKey = key
         lastTrackUri = uri
-        activeHosts.forEach { it.shareTrack(key, uri) }
+        activeHosts.toList().forEach { it.shareTrack(key, uri) }
     }
 
-    /** Préférence persistée : le partage est-il voulu (restauré au lancement) ? */
+    /**
+     * Préférence persistée : le partage est-il voulu (restauré au lancement) ?
+     * Désactivé par défaut : ArcadeShare ne démarre jamais sans action explicite de l'utilisateur
+     * (créer, rejoindre ou activer une room), comme l'annonce la politique de vie privée.
+     */
     fun isSharingEnabled(): Boolean =
         appContext?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            ?.getBoolean(KEY_SHARING, true) ?: true
+            ?.getBoolean(KEY_SHARING, false) ?: false
 
     private fun setSharingEnabled(enabled: Boolean) {
         appContext?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -163,7 +201,7 @@ object ArcadeShare {
     /** Coupe le partage (les rooms sont conservées, les invités sont déconnectés). */
     fun stopSharing() {
         setSharingEnabled(false)
-        activeHosts.forEach { it.stopBroadcasting() }
+        activeHosts.toList().forEach { it.stopBroadcasting() }
         onSharingChanged?.invoke()
     }
 
@@ -179,6 +217,7 @@ object ArcadeShare {
     fun createGuest(username: String): ArcadeShareGuest {
         checkInit()
         val guest = ArcadeShareGuest(appContext!!, serverUrl, httpUrl, username)
+        guest.onReleased = { activeGuests.remove(guest) }
         activeGuests.add(guest)
         return guest
     }
@@ -192,6 +231,8 @@ object ArcadeShare {
     /**
      * Récupère les rooms permanentes créées par cet appareil.
      * Le callback est TOUJOURS rappelé sur le thread principal.
+     * Si le serveur répond par une erreur (403, 429...), la liste est vide et l'erreur est journalisée :
+     * l'appli ne doit pas en conclure que l'utilisateur n'a aucune room.
      */
     fun fetchMyRooms(onResult: (List<JSONObject>) -> Unit) {
         checkInit()
@@ -207,8 +248,12 @@ object ArcadeShare {
             override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
                 val list = mutableListOf<JSONObject>()
                 try {
-                    val arr = JSONArray(response.body?.string() ?: "[]")
-                    for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
+                    if (!response.isSuccessful) {
+                        android.util.Log.w("ArcadeShare", "fetchMyRooms: HTTP ${response.code}")
+                    } else {
+                        val arr = JSONArray(response.body?.string() ?: "[]")
+                        for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
+                    }
                 } catch (_: Exception) {
                     list.clear()
                 } finally {
@@ -222,8 +267,8 @@ object ArcadeShare {
     /** Coupe les connexions (les rooms sont conservées côté serveur). */
     fun release() {
         android.util.Log.w("ArcadeShare", "ArcadeShare.release() appelé", Throwable("appelant"))
-        activeHosts.forEach  { it.release() }
-        activeGuests.forEach { it.release() }
+        activeHosts.toList().forEach  { it.release() }
+        activeGuests.toList().forEach { it.release() }
         activeHosts.clear()
         activeGuests.clear()
     }
