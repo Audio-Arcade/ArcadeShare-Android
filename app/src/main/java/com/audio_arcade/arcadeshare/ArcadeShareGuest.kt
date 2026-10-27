@@ -87,6 +87,8 @@ class ArcadeShareGuest(
                 val hostName   = msg.optString("hostName", "Hôte")
                 val guestCount = msg.optInt("guestCount", 0)
                 val lastState  = msg.optJSONObject("lastState")?.let { buildState(it) }
+                val hostCertified = if (msg.isNull("hostCertified")) null else msg.optBoolean("hostCertified")
+                callback?.onHostCertification(hostCertified)
                 callback?.onRoomJoined(roomCode, hostName, guestCount, lastState)
                 lastState?.let { callback?.onStateReceived(it) }
             }
