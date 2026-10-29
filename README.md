@@ -53,11 +53,9 @@
 
 **[✅ Voir les applications certifiées](https://audio-arcade.odoo.com/sdk-doc/arcade-share-server/certified-apps)**
 
+> 🔎 **Depuis la V3, le SDK expose la certification.** Ton application peut savoir si elle est elle-même certifiée, consulter le statut public d'une application à partir de son nom et, côté invité, savoir si l'application de l'hôte est certifiée. Rien n'est bloqué : c'est une information à afficher à l'utilisateur (voir [section 7](#7-certification-de-lapplication)).
+
 ---
-
-## ⚠️ Accès bêta — À lire avant d'intégrer
-
-> Si un accès bêta est actif, ne l'intégrez pas dans une version stable de votre application. Les versions bêta font l'objet de correctifs réguliers afin d'atteindre le niveau de qualité requis par le SDK. Intégrer une bêta en production peut provoquer des bugs imprévus pour vos utilisateurs. Attendez toujours une version stable avant tout déploiement en production.
 
 [![](https://jitpack.io/v/Audio-Arcade/Audio_Arcade_SDK_Android.svg)](https://jitpack.io/#Audio-Arcade/Audio_Arcade_SDK_Android)
 
@@ -78,8 +76,9 @@
 5. [Rooms permanentes](#4-rooms-permanentes)
 6. [Mode Invité — Live](#5-mode-invité--live)
 7. [Envoi de musique](#6-envoi-de-musique)
-8. [Référence des méthodes](#7-référence-des-méthodes)
-9. [Référence des événements](#8-référence-des-événements)
+8. [Certification de l'application](#7-certification-de-lapplication)
+9. [Référence des méthodes](#8-référence-des-méthodes)
+10. [Référence des événements](#9-référence-des-événements)
 
 ---
 
@@ -97,6 +96,7 @@ Chaque application qui utilise ArcadeShare doit posséder son propre `appId`, fo
 | `appId` inconnu ou désactivé | `onError` avec le message du serveur |
 | Version du SDK dépréciée (fonctionne encore) | Avertissement dans le logcat (tag `ArcadeShare`) |
 | Version du SDK inconnue | Connexion refusée : télécharge la dernière version du SDK |
+| Application non certifiée | Aucun blocage : `ArcadeShare.isCertified` vaut `false` (voir section 7) |
 
 > ⚠️ Ne modifie pas la valeur de `versionId` dans le code du SDK : le serveur connaît la correspondance réelle entre cet identifiant et la version publiée, et refuse une version dépréciée ou inconnue.
 
@@ -122,19 +122,19 @@ Puis la dépendance dans le `build.gradle.kts` du module app :
 
 ```kotlin
 dependencies {
-    implementation("com.github.Audio-Arcade:Audio_Arcade_SDK_Android:android-2.0.2")
+    implementation("com.github.Audio-Arcade:Audio_Arcade_SDK_Android:3.0.0")
 }
 ```
 
 ### Option B — Fichier AAR
 
-**[⬇ Télécharger arcadeshare-2.0.2.aar](https://github.com/Audio-Arcade/Audio_Arcade_SDK_Android/releases/download/2.0.2/Audio_Arcade_SDK_Android-2.0.2.aar)**
+**[⬇ Télécharger arcadeshare-3.0.0.aar](https://github.com/Audio-Arcade/Audio_Arcade_SDK_Android/releases/download/3.0.0/Audio_Arcade_SDK_Android-3.0.0.aar)**
 
 Copie le fichier dans `app/libs/` et déclare-le avec sa dépendance (OkHttp n'est pas embarqué dans un AAR) :
 
 ```kotlin
 dependencies {
-    implementation(files("libs/arcadeshare-2.0.2.aar"))
+    implementation(files("libs/arcadeshare-3.0.0.aar"))
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }
 ```
@@ -233,6 +233,8 @@ ArcadeShare.broadcastState(
 
 > ℹ️ Le SDK renvoie lui-même le dernier état et la dernière piste à toute room qui démarre ou se reconnecte, et entretient une position à jour toutes les 2 secondes. Aucune boucle d'envoi n'est nécessaire côté application, et l'upload se fait en flux depuis l'URI (pas de copie du fichier).
 
+> ℹ️ **Reconnexion** : après une coupure réseau, chaque room se reconnecte automatiquement pendant environ 5 minutes. Si elle n'y parvient pas, la connexion est abandonnée et `onError` est appelé. Inutile de gérer la reconnexion toi-même dans `onDisconnected`.
+
 ### Restaurer les rooms au lancement
 
 ```kotlin
@@ -311,6 +313,10 @@ guest.setCallback(object : GuestCallback {
     override fun onHostLeft() {
         // l'hôte a quitté la session
     }
+    override fun onHostCertification(certified: Boolean?) {
+        // application de l'hôte certifiée (true), non certifiée (false) ou inconnue (null)
+        // appelé juste avant onRoomJoined — informatif uniquement
+    }
     override fun onError(message: String) { }
     override fun onDisconnected() { }
 })
@@ -328,9 +334,9 @@ override fun onStateReceived(state: ShareState) {
 
     if (state.currentFile != loadedFile) {
         loadedFile = state.currentFile
-        // « ?f= » évite que le lecteur resserve l'ancien fichier pour la même URL
-        val uri = "${state.audioUrl}?f=${Uri.encode(state.currentFile)}"
-        player.setMediaItem(MediaItem.fromUri(uri))
+        // audioUrl contient déjà l'authentification et le nom du fichier courant :
+        // utilise-la telle quelle (le lecteur ne resservira jamais l'ancien fichier pour une nouvelle piste)
+        player.setMediaItem(MediaItem.fromUri(state.audioUrl))
         player.prepare()
     }
 
@@ -338,6 +344,8 @@ override fun onStateReceived(state: ShareState) {
     // de la latence réseau : resynchronise si l'écart dépasse ~3 secondes.
 }
 ```
+
+> ⚠️ **V3** : `audioUrl` contient déjà ses paramètres (`?appId=…&versionId=…&f=…`). N'ajoute plus `?f=` toi-même : l'URL deviendrait invalide.
 
 > ℹ️ Pour une lecture qui continue en arrière-plan (écran verrouillé, changement d'activité), héberge ton lecteur dans un `MediaSessionService` dédié. Si ton application a déjà une session Media3 (lecteur local), donne un identifiant unique à celle de l'invité avec `MediaSession.Builder(...).setId("guest")`, sinon Media3 refuse la seconde session (« Session ID must be unique »).
 
@@ -367,9 +375,57 @@ host.uploadMusic(file) { success -> }   // surcharge pour un java.io.File
 | Formats acceptés | `.mp3` `.flac` `.wav` `.ogg` `.aac` `.m4a` `.opus` |
 | Taille maximale | 200 Mo |
 
+> ℹ️ **V3** : `onResult` reçoit `false` après 3 tentatives infructueuses, et le SDK vérifie que le serveur sert bien le fichier avant de considérer la piste comme envoyée. Quand le serveur refuse explicitement le fichier (trop volumineux, format non pris en charge, application non autorisée), la raison est transmise à `onError`.
+
 ---
 
-## 7. Référence des méthodes
+## 7. Certification de l'application
+
+Le serveur sait si ton application est certifiée par Audio_Arcade. Cette information est **purement informative** : une application non certifiée continue de fonctionner. Elle te permet d'afficher un indicateur (accueil, paramètres, page des codes…) pour que l'utilisateur sache à qui il confie son code de session.
+
+### Certification de ta propre application
+
+```kotlin
+ArcadeShare.isCertified   // null = pas encore connu, true / false après la première connexion authentifiée
+
+ArcadeShare.onCertificationChanged = { certified: Boolean? ->   // thread principal
+    // mets à jour ton indicateur
+}
+// Remets ArcadeShare.onCertificationChanged = null quand l'écran se ferme
+```
+
+> ℹ️ `isCertified` n'est connu qu'après une connexion authentifiée (démarrage du partage ou jointure d'une room). Pour afficher le statut dès l'accueil, utilise `fetchCertificationStatus`.
+
+### Statut public d'une application (par son nom)
+
+```kotlin
+ArcadeShare.fetchCertificationStatus("Audio_Arcade") { status ->   // thread principal
+    // "certified" | "partial" | "unverified" | "revoked" | null (serveur injoignable)
+}
+```
+
+| Statut | Signification |
+|---|---|
+| `certified` | Application certifiée par Audio_Arcade |
+| `partial` | Certification partielle |
+| `unverified` | Application non vérifiée / non certifiée |
+| `revoked` | Certification révoquée |
+| `null` | Statut indisponible (réseau ou serveur injoignable) |
+
+> ℹ️ Cette requête est publique : elle ne nécessite ni connexion ni room, et ne révèle jamais l'`appId`.
+
+### Certification de l'application de l'hôte (invité)
+
+```kotlin
+override fun onHostCertification(certified: Boolean?) {
+    // true = certifiée, false = non certifiée, null = inconnue (serveur ou hôte non identifié)
+    // appelé juste avant onRoomJoined
+}
+```
+
+---
+
+## 8. Référence des méthodes
 
 ### `ArcadeShare` (objet)
 
@@ -391,6 +447,8 @@ host.uploadMusic(file) { success -> }   // surcharge pour un java.io.File
 | `deleteRoom(code, onResult)` | Supprime une room côté serveur | Hôte |
 | `createGuest(username)` | Crée une instance invité | Invité |
 | `release()` | Coupe toutes les connexions (les rooms sont conservées) | Tous |
+| `isCertified` / `onCertificationChanged` | Certification de ton application (`Boolean?`) et callback de changement | Tous |
+| `fetchCertificationStatus(nom, onResult)` | Statut public d'une application d'après son nom | Tous |
 | `version()` | Version du SDK | Tous |
 
 ### `ArcadeShareHost`
@@ -421,7 +479,7 @@ host.uploadMusic(file) { success -> }   // surcharge pour un java.io.File
 
 ---
 
-## 8. Référence des événements
+## 9. Référence des événements
 
 ### `HostCallback`
 
@@ -430,7 +488,7 @@ host.uploadMusic(file) { success -> }   // surcharge pour un java.io.File
 | `onRoomCreated` | `RoomCode` | Room créée ou réactivée (aussi après une reconnexion) |
 | `onGuestJoined` | `RoomCode, String username` | Un invité rejoint |
 | `onGuestLeft` | `RoomCode, String username` | Un invité quitte |
-| `onError` | `String message` | Erreur (room pleine, appId refusé, connexion impossible...) |
+| `onError` | `String message` | Erreur (room pleine, appId refusé, connexion impossible, fichier refusé à l'envoi...) |
 | `onDisconnected` | — | Connexion perdue |
 
 ### `GuestCallback`
@@ -439,6 +497,7 @@ host.uploadMusic(file) { success -> }   // surcharge pour un java.io.File
 |---|---|---|
 | `onRoomJoined` | `String code, String hostName, Int guestCount, ShareState?` | Connexion à la room réussie |
 | `onStateReceived` | `ShareState` | Nouvel état reçu de l'hôte |
+| `onHostCertification` | `Boolean?` | Juste avant `onRoomJoined` : application de l'hôte certifiée (`true`), non certifiée (`false`) ou inconnue (`null`) |
 | `onHostLeft` | — | L'hôte a quitté ou est déconnecté |
 | `onError` | `String message` | Erreur reçue du serveur (room introuvable, room pleine...) |
 | `onDisconnected` | — | Connexion perdue |
