@@ -2,7 +2,7 @@
 [![JitPack](https://img.shields.io/badge/JitPack-3.0.0-brightgreen)](https://jitpack.io/#Audio-Arcade/ArcadeShare-Android/3.0.0)
 [![](https://jitpack.io/v/Audio-Arcade/Audio_Arcade_SDK_Android.svg)](https://jitpack.io/#Audio-Arcade/ArcadeShare-Android)
 
-## Arcade Share Server
+## Arcade Share
 
 > Partagez votre musique à distance, en temps réel, sans réseau commun — et gardez le contrôle total de votre session.
 
@@ -12,7 +12,7 @@
 
 ## 📋 Présentation
 
-**Arcade Share Server** est un SDK qui intègre la fonctionnalité de *cast amélioré* d'Audio_Arcade directement dans vos applications musicales. Il permet le partage de musique à distance, de façon synchronisée, **sans que les auditeurs aient besoin d'être sur la même connexion internet**. Vous restez le maître de la session : les auditeurs ne peuvent que mettre en pause ou reprendre la lecture de leur côté uniquement.
+**Arcade Share** est un SDK qui intègre la fonctionnalité de *cast amélioré* d'Audio_Arcade directement dans vos applications musicales. Il permet le partage de musique à distance, de façon synchronisée, **sans que les auditeurs aient besoin d'être sur la même connexion internet**. Vous restez le maître de la session : les auditeurs ne peuvent que mettre en pause ou reprendre la lecture de leur côté uniquement.
 
 > ℹ️ **À noter :** le code de session fonctionne uniquement **de vous vers un autre appareil**. Il n'est pas possible d'écouter votre propre musique via ce code sur le même compte — le partage est conçu pour être partagé avec d'autres personnes, pas avec vous-même.
 
