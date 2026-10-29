@@ -43,7 +43,7 @@ afterEvaluate {
                 from(components["release"])
                 groupId = "com.github.Audio-Arcade"
                 artifactId = "arcadeshare"
-                version = "2.0.1"
+                version = "3.0.0"
             }
         }
     }

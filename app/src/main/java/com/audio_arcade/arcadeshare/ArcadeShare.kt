@@ -275,7 +275,7 @@ object ArcadeShare {
 
     fun getServerUrl(): String = serverUrl
     fun getHttpUrl(): String = httpUrl
-    fun version(): String = "1.0.0"
+    fun version(): String = "3.0.0"
 
     private fun checkInit() {
         check(initialized) {
