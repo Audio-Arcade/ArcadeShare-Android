@@ -1,4 +1,6 @@
 # Audio_Arcade_SDK
+[![JitPack](https://img.shields.io/badge/JitPack-3.0.0-brightgreen)](https://jitpack.io/#Audio-Arcade/Audio_Arcade_SDK_Android/3.0.0)
+[![](https://jitpack.io/v/Audio-Arcade/Audio_Arcade_SDK_Android.svg)](https://jitpack.io/#Audio-Arcade/Audio_Arcade_SDK_Android)
 
 ## Arcade Share Server
 
@@ -54,12 +56,6 @@
 **[✅ Voir les applications certifiées](https://audio-arcade.odoo.com/sdk-doc/arcade-share-server/certified-apps)**
 
 > 🔎 **Depuis la V3, le SDK expose la certification.** Ton application peut savoir si elle est elle-même certifiée, consulter le statut public d'une application à partir de son nom et, côté invité, savoir si l'application de l'hôte est certifiée. Rien n'est bloqué : c'est une information à afficher à l'utilisateur (voir [section 7](#7-certification-de-lapplication)).
-
----
-
-[![](https://jitpack.io/v/Audio-Arcade/Audio_Arcade_SDK_Android.svg)](https://jitpack.io/#Audio-Arcade/Audio_Arcade_SDK_Android)
-
----
 
 # 📱 Documentation Android — Kotlin
 
