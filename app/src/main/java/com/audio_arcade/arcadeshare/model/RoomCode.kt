@@ -1,3 +1,4 @@
+//Copyright © 2024-2026 Audio_Arcade. Tous droits réservés.
 package com.audio_arcade.arcadeshare.model
 
 data class RoomCode(
