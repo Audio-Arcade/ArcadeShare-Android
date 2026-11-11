@@ -1,5 +1,5 @@
 # Audio_Arcade_SDK
-[![JitPack](https://img.shields.io/badge/JitPack-3.0.0-brightgreen)](https://jitpack.io/#Audio-Arcade/ArcadeShare-Android/3.0.0)
+<!--[![JitPack](https://img.shields.io/badge/JitPack-3.0.0-brightgreen)](https://jitpack.io/#Audio-Arcade/ArcadeShare-Android/3.0.0) -->
 [![](https://jitpack.io/v/Audio-Arcade/Audio_Arcade_SDK_Android.svg)](https://jitpack.io/#Audio-Arcade/ArcadeShare-Android)
 
 ## Arcade Share
