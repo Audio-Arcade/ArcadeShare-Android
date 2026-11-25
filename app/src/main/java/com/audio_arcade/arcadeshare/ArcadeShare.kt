@@ -7,6 +7,9 @@ import android.os.Handler
 import android.os.Looper
 import com.audio_arcade.arcadeshare.model.ShareState
 import com.audio_arcade.arcadeshare.network.DeviceId
+import com.audio_arcade.arcadeshare.network.ArcadeWebSocket
+import com.audio_arcade.arcadeshare.network.LinkTokenStore
+import com.audio_arcade.arcadeshare.network.optStringOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
@@ -36,7 +39,7 @@ object ArcadeShare {
         .connectTimeout(10, TimeUnit.SECONDS)
         .build()
 
-    private const val SDK_VERSION_ID = "49273058164029573816"
+    private const val SDK_VERSION_ID = "21682153549844344969"
     private const val PREFS_NAME  = "arcadeshare_prefs"
     private const val KEY_SHARING = "sharing_enabled"
 
@@ -104,6 +107,106 @@ object ArcadeShare {
                 mainHandler.post { onResult(status) }
             }
         })
+    }
+
+    // ── Compte Audio_Arcade lié (pseudo vérifié) ──────────────────────────────
+
+    /** Plateforme déclarée au serveur (affichée dans « Applications connectées » du compte). */
+    internal const val PLATFORM = "Android"
+
+    /** Pseudo réservé du compte lié, vérifié sur la dernière connexion (null = aucun). */
+    @Volatile var linkedHandle: String? = null
+        private set
+
+    /** Nom du compte lié, vérifié sur la dernière connexion (null = non lié ou pas encore vérifié). */
+    @Volatile var linkedName: String? = null
+        private set
+
+    val isLinked: Boolean get() = linkedName != null
+
+    /** Un jeton de liaison est enregistré sur cet appareil (pas forcément encore vérifié). */
+    val hasStoredLink: Boolean get() = storedLinkToken() != null
+
+    /** La liaison a été révoquée côté serveur : le jeton local vient d'être supprimé (thread principal). */
+    var onLinkRevoked: (() -> Unit)? = null
+
+    internal fun storedLinkToken(): String? = appContext?.let { LinkTokenStore.load(it) }
+
+    internal fun onLinkVerified(handle: String?, name: String?) {
+        linkedHandle = handle
+        linkedName = name
+    }
+
+    internal fun onLinkInvalid() {
+        appContext?.let { LinkTokenStore.clear(it) }
+        linkedHandle = null
+        linkedName = null
+        mainHandler.post { onLinkRevoked?.invoke() }
+    }
+
+    /**
+     * Lie cet appareil à un compte Audio_Arcade avec le code affiché sur la page « Mon compte » du site.
+     * [onResult] est appelé sur le thread principal.
+     */
+    fun linkAccount(code: String, onResult: (ok: Boolean, handle: String?, error: String?) -> Unit) {
+        checkInit()
+        val ctx = appContext!!
+        val msg = JSONObject().apply {
+            put("type", "link_account")
+            put("code", code.trim())
+            put("deviceSerial", getDeviceSerial())
+            put("platform", PLATFORM)
+        }.toString()
+
+        val attempt = object {
+            var done = false
+            var socket: ArcadeWebSocket? = null
+            val timeout = Runnable { finish(false, null, "Le serveur n'a pas répondu.") }
+
+            fun finish(ok: Boolean, handle: String?, error: String?) {
+                if (done) return
+                done = true
+                mainHandler.removeCallbacks(timeout)
+                socket?.disconnect()
+                onResult(ok, handle, error)
+            }
+        }
+
+        attempt.socket = ArcadeWebSocket(
+            serverUrl = serverUrl,
+            onOpen    = { attempt.socket?.send(msg) },
+            onMessage = { raw ->
+                val json = runCatching { JSONObject(raw) }.getOrNull()
+                if (json != null) when (json.optString("type")) {
+                    "link_ok" -> {
+                        val token = json.optStringOrNull("token")
+                        if (token == null) {
+                            attempt.finish(false, null, "Liaison impossible.")
+                        } else {
+                            LinkTokenStore.save(ctx, token)
+                            val handle = json.optStringOrNull("handle")
+                            onLinkVerified(handle, json.optStringOrNull("name"))
+                            attempt.finish(true, handle, null)
+                        }
+                    }
+                    "link_error" ->
+                        attempt.finish(false, null, json.optString("message", "Liaison impossible."))
+                }
+            },
+            onError     = { attempt.finish(false, null, it) },
+            onClosed    = { attempt.finish(false, null, "Connexion interrompue.") },
+            maxAttempts = 0,        // une seule tentative de connexion
+            verifyLink  = false     // on ne vérifie pas l'ancien jeton : on en demande un nouveau
+        )
+        mainHandler.postDelayed(attempt.timeout, 15_000)
+        attempt.socket?.connect()
+    }
+
+    /** Oublie la liaison sur cet appareil. Pour la révoquer côté serveur, supprimer l'application dans « Mon compte ». */
+    fun unlink() {
+        appContext?.let { LinkTokenStore.clear(it) }
+        linkedHandle = null
+        linkedName = null
     }
 
     // ── Hôtes ─────────────────────────────────────────────────────────────────
@@ -276,7 +379,7 @@ object ArcadeShare {
 
     fun getServerUrl(): String = serverUrl
     fun getHttpUrl(): String = httpUrl
-    fun version(): String = "3.0.0"
+    fun version(): String = "4.0.0"
 
     private fun checkInit() {
         check(initialized) {

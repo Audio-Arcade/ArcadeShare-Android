@@ -7,6 +7,7 @@ interface GuestCallback {
 
     /** Statut de l'appli de l'hôte : true = certifiée, false = non certifiée, null = inconnu. */
     fun onHostCertification(certified: Boolean?) {}
+    fun onHostHandle(handle: String?) {}
 
     /** Room rejointe avec succès. lastState peut être null si l'hôte n'a pas encore joué. */
     fun onRoomJoined(code: String, hostName: String, guestCount: Int, lastState: ShareState?)

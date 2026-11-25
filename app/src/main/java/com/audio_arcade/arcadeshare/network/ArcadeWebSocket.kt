@@ -17,13 +17,17 @@ internal class ArcadeWebSocket(
     private val onError:     (String) -> Unit,
     private val onClosed:    () -> Unit,
     private val maxAttempts: Int  = 5,
-    private val maxDelayMs:  Long = 10_000L
+    private val maxDelayMs:  Long = 10_000L,
+    /** Vérifie le jeton du compte lié avant d'envoyer create/rejoin/join_room. */
+    private val verifyLink:  Boolean = true
 ) {
     private companion object {
         const val PONG = """{"type":"pong"}"""
         /** Début exact du message envoyé par le serveur quand il refuse l'application. */
         const val AUTH_REJECTED = "{\"type\":\"auth_rejected\""
         const val MAX_PENDING = 20
+        /** Sans réponse du serveur à la vérification du compte lié, on continue quand même. */
+        const val LINK_TIMEOUT_MS = 8_000L
     }
 
     private var ws:               WebSocket? = null
@@ -31,6 +35,7 @@ internal class ArcadeWebSocket(
     private val pending           = ArrayDeque<String>()   // protégée par synchronized(pending)
     @Volatile private var isOpen        = false
     @Volatile private var authenticated = false
+    @Volatile private var awaitingLink  = false            // vérification du compte lié en cours
     private var shouldReconnect   = true
     private var reconnectAttempts = 0
 
@@ -49,9 +54,17 @@ internal class ArcadeWebSocket(
         }
     }
 
+    private val linkTimeout = Runnable {
+        if (awaitingLink) {
+            awaitingLink = false
+            ws?.let { proceedAfterAuth(it) }
+        }
+    }
+
     fun connect() {
         shouldReconnect = true
         authenticated = false
+        awaitingLink = false
         val req = Request.Builder().url(serverUrl).build()
         ws = client.newWebSocket(req, listener)
     }
@@ -70,22 +83,49 @@ internal class ArcadeWebSocket(
     fun disconnect() {
         shouldReconnect = false
         handler.removeCallbacks(pingRunnable)
+        handler.removeCallbacks(linkTimeout)
         ws?.close(1000, "Déconnexion normale")
         ws = null
         isOpen = false
         authenticated = false
+        awaitingLink = false
         synchronized(pending) { pending.clear() }
     }
 
     /** Reconnexion avec délai croissant ; au bout de [maxAttempts] on prévient l'appelant. */
     private fun retryOrGiveUp(giveUp: () -> Unit) {
         handler.removeCallbacks(pingRunnable)
+        handler.removeCallbacks(linkTimeout)
+        awaitingLink = false
         if (shouldReconnect && reconnectAttempts < maxAttempts) {
             reconnectAttempts++
             val delay = (reconnectAttempts * 2000L).coerceAtMost(maxDelayMs)
             handler.postDelayed({ if (shouldReconnect) connect() }, delay)
         } else {
             giveUp()
+        }
+    }
+
+    /** Connexion authentifiée (et compte lié vérifié le cas échéant) : on peut parler à la room. Thread principal. */
+    private fun proceedAfterAuth(webSocket: WebSocket) {
+        if (!shouldReconnect) return
+        authenticated = true
+        reconnectAttempts = 0          // connexion réellement établie
+        handler.removeCallbacks(pingRunnable)
+        onOpen()   // envoie create_room / rejoin_room / join_room
+        val queued = synchronized(pending) {
+            pending.toList().also { pending.clear() }
+        }
+        queued.forEach { webSocket.send(it) }
+        handler.postDelayed(pingRunnable, 25_000)
+    }
+
+    private fun endLinkStep(webSocket: WebSocket) {
+        handler.post {
+            if (!awaitingLink) return@post
+            awaitingLink = false
+            handler.removeCallbacks(linkTimeout)
+            proceedAfterAuth(webSocket)
         }
     }
 
@@ -117,6 +157,29 @@ internal class ArcadeWebSocket(
                 return
             }
 
+            // Réponse à la vérification du compte lié (entre l'authentification et l'envoi des messages de room)
+            if (awaitingLink) {
+                val json = runCatching { JSONObject(text) }.getOrNull()
+                if (json != null) {
+                    when (json.optString("type")) {
+                        "link_verified" -> {
+                            ArcadeShare.onLinkVerified(json.optStringOrNull("handle"), json.optStringOrNull("name"))
+                            endLinkStep(webSocket)
+                            return
+                        }
+                        "link_invalid" -> {            // révoqué ou inconnu : le jeton local est supprimé
+                            ArcadeShare.onLinkInvalid()
+                            endLinkStep(webSocket)
+                            return
+                        }
+                        "link_error" -> {              // service de liaison indisponible : on garde le jeton
+                            endLinkStep(webSocket)
+                            return
+                        }
+                    }
+                }
+            }
+
             if (!authenticated) {
                 val json = runCatching { JSONObject(text) }.getOrNull()
                 if (json?.optString("type") == "auth_ok") {
@@ -124,17 +187,19 @@ internal class ArcadeWebSocket(
                         Log.w("ArcadeShare", "SDK déprécié : ${json.optString("reason")}")
                     }
                     ArcadeShare.isCertified = json.optBoolean("certified", false)
-                    handler.post {
-                        if (!shouldReconnect) return@post
-                        authenticated = true
-                        reconnectAttempts = 0          // connexion réellement établie
-                        handler.removeCallbacks(pingRunnable)
-                        onOpen()   // envoie create_room / rejoin_room / join_room
-                        val queued = synchronized(pending) {
-                            pending.toList().also { pending.clear() }
-                        }
-                        queued.forEach { webSocket.send(it) }
-                        handler.postDelayed(pingRunnable, 25_000)
+
+                    val linkToken = if (verifyLink) ArcadeShare.storedLinkToken() else null
+                    if (linkToken == null) {
+                        handler.post { proceedAfterAuth(webSocket) }
+                    } else {
+                        awaitingLink = true
+                        handler.postDelayed(linkTimeout, LINK_TIMEOUT_MS)
+                        webSocket.send(JSONObject().apply {
+                            put("type", "link_verify")
+                            put("token", linkToken)
+                            put("deviceSerial", ArcadeShare.getDeviceSerial())
+                            put("platform", ArcadeShare.PLATFORM)
+                        }.toString())
                     }
                     return
                 }

@@ -9,6 +9,7 @@ import com.audio_arcade.arcadeshare.callback.GuestCallback
 import com.audio_arcade.arcadeshare.model.ShareState
 import com.audio_arcade.arcadeshare.network.ArcadeWebSocket
 import com.audio_arcade.arcadeshare.network.DeviceId
+import com.audio_arcade.arcadeshare.network.optStringOrNull
 import org.json.JSONObject
 
 class ArcadeShareGuest(
@@ -90,6 +91,7 @@ class ArcadeShareGuest(
                 val lastState  = msg.optJSONObject("lastState")?.let { buildState(it) }
                 val hostCertified = if (msg.isNull("hostCertified")) null else msg.optBoolean("hostCertified")
                 callback?.onHostCertification(hostCertified)
+                callback?.onHostHandle(msg.optStringOrNull("hostHandle"))
                 callback?.onRoomJoined(roomCode, hostName, guestCount, lastState)
                 lastState?.let { callback?.onStateReceived(it) }
             }
