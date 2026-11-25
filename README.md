@@ -1,12 +1,14 @@
 # Audio_Arcade_SDK
-<!--[![JitPack](https://img.shields.io/badge/JitPack-3.0.0-brightgreen)](https://jitpack.io/#Audio-Arcade/ArcadeShare-Android/3.0.0) -->
-[![](https://jitpack.io/v/Audio-Arcade/Audio_Arcade_SDK_Android.svg)](https://jitpack.io/#Audio-Arcade/ArcadeShare-Android)
+
+[![](https://jitpack.io/v/Audio-Arcade/ArcadeShare-Android.svg)](https://jitpack.io/#Audio-Arcade/ArcadeShare-Android)
 
 ## Arcade Share
 
 > Partagez votre musique à distance, en temps réel, sans réseau commun — et gardez le contrôle total de votre session.
 
 📱 **Android** &nbsp;·&nbsp; 🪟 **Windows** &nbsp;·&nbsp; 🐧 ~~Linux~~ *(à venir)*
+
+**Version 4.0.0** &nbsp;·&nbsp; [📖 Documentation en ligne](https://audio-arcade.fr.eu.org/sdk)
 
 ---
 
@@ -25,6 +27,8 @@
 | 🛰️ **Sans réseau commun** | Hôte et auditeurs n'ont pas besoin de partager la même connexion. Le SDK gère tout automatiquement. |
 | 🔄 **Synchronisation temps réel** | Tout le monde écoute la même chose au même moment, grâce à la synchronisation côté serveur. |
 | 👑 **Contrôle maître** | L'hôte garde la main sur tout. Les auditeurs peuvent uniquement pause / reprendre de leur côté. |
+| 🔗 **Compte lié et pseudo vérifié** *(V4)* | L'utilisateur lie son appareil à son compte Audio_Arcade : son pseudo réservé devient un pseudo **vérifié** et ne peut plus être usurpé. |
+| ✅ **Certification** | Ton application peut être certifiée par Audio_Arcade, et le SDK expose ce statut. |
 
 ---
 
@@ -55,7 +59,11 @@
 
 **[✅ Voir les applications certifiées](https://audio-arcade.odoo.com/sdk-doc/arcade-share-server/certified-apps)**
 
-> 🔎 **Depuis la V3, le SDK expose la certification.** Ton application peut savoir si elle est elle-même certifiée, consulter le statut public d'une application à partir de son nom et, côté invité, savoir si l'application de l'hôte est certifiée. Rien n'est bloqué : c'est une information à afficher à l'utilisateur (voir [section 7](#7-certification-de-lapplication)).
+> 🔎 **Depuis la V3, le SDK expose la certification.** Ton application peut savoir si elle est elle-même certifiée, consulter le statut public d'une application à partir de son nom et, côté invité, savoir si l'application de l'hôte est certifiée. Rien n'est bloqué : c'est une information à afficher à l'utilisateur (voir [section 8](#8-certification-de-lapplication)).
+
+> 🔗 **Depuis la V4, le SDK protège les pseudos.** Un pseudo réservé sur Audio_Arcade ne peut être utilisé dans une room que par son propriétaire, **vérifié** grâce à la liaison de son compte. Toute autre personne reçoit l'erreur « Nom réservé » (voir [section 7](#7-compte-audio_arcade-lié-pseudo-vérifié)).
+
+---
 
 # 📱 Documentation Android — Kotlin
 
@@ -72,9 +80,11 @@
 5. [Rooms permanentes](#4-rooms-permanentes)
 6. [Mode Invité — Live](#5-mode-invité--live)
 7. [Envoi de musique](#6-envoi-de-musique)
-8. [Certification de l'application](#7-certification-de-lapplication)
-9. [Référence des méthodes](#8-référence-des-méthodes)
-10. [Référence des événements](#9-référence-des-événements)
+8. [Compte Audio_Arcade lié (pseudo vérifié)](#7-compte-audio_arcade-lié-pseudo-vérifié)
+9. [Certification de l'application](#8-certification-de-lapplication)
+10. [Référence des méthodes](#9-référence-des-méthodes)
+11. [Référence des événements](#10-référence-des-événements)
+12. [Migration depuis la V3 et historique](#11-migration-depuis-la-v3-et-historique)
 
 ---
 
@@ -90,9 +100,10 @@ Chaque application qui utilise ArcadeShare doit posséder son propre `appId`, fo
 | Situation | Comportement sous Android |
 |---|---|
 | `appId` inconnu ou désactivé | `onError` avec le message du serveur |
+| Application révoquée en cours de session | `onError` avec le motif, sans nouvelle tentative de reconnexion |
 | Version du SDK dépréciée (fonctionne encore) | Avertissement dans le logcat (tag `ArcadeShare`) |
 | Version du SDK inconnue | Connexion refusée : télécharge la dernière version du SDK |
-| Application non certifiée | Aucun blocage : `ArcadeShare.isCertified` vaut `false` (voir section 7) |
+| Application non certifiée | Aucun blocage : `ArcadeShare.isCertified` vaut `false` (voir section 8) |
 
 > ⚠️ Ne modifie pas la valeur de `versionId` dans le code du SDK : le serveur connaît la correspondance réelle entre cet identifiant et la version publiée, et refuse une version dépréciée ou inconnue.
 
@@ -118,22 +129,26 @@ Puis la dépendance dans le `build.gradle.kts` du module app :
 
 ```kotlin
 dependencies {
-    implementation("com.github.Audio-Arcade:Audio_Arcade_SDK_Android:3.0.0")
+    implementation("com.github.Audio-Arcade:ArcadeShare-Android:4.0.0")
 }
 ```
 
+> ℹ️ **Android 6.0 (API 23) minimum** : le jeton du compte lié (section 7) est chiffré avec le Keystore Android. Vérifie que ton module déclare `minSdk = 23` ou plus.
+
 ### Option B — Fichier AAR
 
-**[⬇ Télécharger arcadeshare-3.0.0.aar](https://github.com/Audio-Arcade/Audio_Arcade_SDK_Android/releases/download/3.0.0/Audio_Arcade_SDK_Android-3.0.0.aar)**
+**[⬇ Télécharger arcadeshare-4.0.0.aar](https://github.com/Audio-Arcade/ArcadeShare-Android/releases/download/4.0.0/arcadeshare-4.0.0.aar)**
 
 Copie le fichier dans `app/libs/` et déclare-le avec sa dépendance (OkHttp n'est pas embarqué dans un AAR) :
 
 ```kotlin
 dependencies {
-    implementation(files("libs/arcadeshare-3.0.0.aar"))
+    implementation(files("libs/arcadeshare-4.0.0.aar"))
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }
 ```
+
+> ⚠️ N'utilise pas en même temps la dépendance Gradle **et** le fichier AAR : le SDK serait présent en double, et la compilation échouerait (classes dupliquées) ou le comportement serait imprévisible. Choisis l'une des deux options.
 
 > ℹ️ La permission `INTERNET` est déclarée par le SDK et fusionnée automatiquement dans le manifeste de ton application.
 
@@ -170,7 +185,7 @@ class MyApp : Application() {
 val deviceSerial = ArcadeShare.getDeviceSerial()
 ```
 
-> ℹ️ Identifiant stable de l'appareil. Comme sur Windows, c'est lui qui donne accès aux pseudos réservés et aux rooms permanentes. Il peut changer si l'application est signée avec une autre clé (build debug et release) ou après une réinitialisation d'usine.
+> ℹ️ Identifiant stable de l'appareil. Comme sur Windows, c'est lui qui donne accès aux rooms permanentes. Il peut changer si l'application est signée avec une autre clé (build debug et release) ou après une réinitialisation d'usine. Pour les pseudos réservés, la méthode recommandée depuis la V4 est la **liaison de compte** (section 7).
 
 ---
 
@@ -187,6 +202,8 @@ ArcadeShare.startSharing(username = "Mon Pseudo", codes = codes)
 // Arrêter (les rooms sont conservées, les invités sont déconnectés)
 ArcadeShare.stopSharing()
 ```
+
+> ℹ️ Une room n'est réellement prête qu'une fois `onRoomCreated` reçu (voir `HostCallback`, section 4). Un refus (pseudo réservé, limite de rooms atteinte…) arrive par `onError`.
 
 ### Suivre l'état (ex. couleur d'un bouton)
 
@@ -258,7 +275,9 @@ host.setCallback(object : HostCallback {
     }
     override fun onGuestJoined(room: RoomCode, username: String) { }
     override fun onGuestLeft(room: RoomCode, username: String) { }
-    override fun onError(message: String) { }
+    override fun onError(message: String) {
+        // refus : « Nom réservé », « Maximum 2 rooms permanentes atteint », appId refusé…
+    }
     override fun onDisconnected() { }
 })
 
@@ -296,12 +315,15 @@ ArcadeShare.deleteRoom("ABC123") { ok ->   // supprime la room côté serveur, m
 
 ### Rejoindre une room
 
+> ⚠️ **`joinRoom` n'attend pas la réponse du serveur** : il envoie seulement la demande. L'entrée est confirmée par `onRoomJoined`. Un refus (code inconnu, room pleine, pseudo réservé…) arrive par `onError`, **avant** toute confirmation. Si tu ne gères pas ce cas, ton application se croit « dans une room » qui n'existe pas. Considère donc l'utilisateur dans la room **uniquement après `onRoomJoined`**, comme ci-dessous.
+
 ```kotlin
 val guest = ArcadeShare.createGuest(username = "Mon Pseudo")
+var joined = false   // vrai seulement après la confirmation d'entrée
 
 guest.setCallback(object : GuestCallback {
     override fun onRoomJoined(code: String, hostName: String, guestCount: Int, lastState: ShareState?) {
-        // connecté à la room
+        joined = true   // entrée confirmée par le serveur : connecté à la room
     }
     override fun onStateReceived(state: ShareState) {
         // mettre à jour l'UI + synchroniser la lecture
@@ -313,12 +335,26 @@ guest.setCallback(object : GuestCallback {
         // application de l'hôte certifiée (true), non certifiée (false) ou inconnue (null)
         // appelé juste avant onRoomJoined — informatif uniquement
     }
-    override fun onError(message: String) { }
+    override fun onHostHandle(handle: String?) {
+        // pseudo vérifié de l'hôte (compte Audio_Arcade lié), ou null — V4
+        // appelé juste avant onRoomJoined
+    }
+    override fun onError(message: String) {
+        if (!joined) {
+            // Entrée refusée (code inconnu, room pleine, pseudo réservé…) : on n'est PAS dans la room
+            guest.release()
+            // affiche message à l'utilisateur et réactive tes boutons
+            return
+        }
+        // erreur survenue dans la room
+    }
     override fun onDisconnected() { }
 })
 
 guest.joinRoom("ABC123")
 ```
+
+> ℹ️ Après une coupure réseau, le SDK se reconnecte et rejoint à nouveau la room tout seul : `onRoomJoined` est alors rappelé. `onDisconnected` n'est appelé que lorsque la reconnexion est abandonnée.
 
 ### Lecture audio
 
@@ -341,7 +377,7 @@ override fun onStateReceived(state: ShareState) {
 }
 ```
 
-> ⚠️ **V3** : `audioUrl` contient déjà ses paramètres (`?appId=…&versionId=…&f=…`). N'ajoute plus `?f=` toi-même : l'URL deviendrait invalide.
+> ⚠️ Depuis la V3, `audioUrl` contient déjà ses paramètres (`?appId=…&versionId=…&f=…`). N'ajoute plus `?f=` toi-même : l'URL deviendrait invalide.
 
 > ℹ️ Pour une lecture qui continue en arrière-plan (écran verrouillé, changement d'activité), héberge ton lecteur dans un `MediaSessionService` dédié. Si ton application a déjà une session Media3 (lecteur local), donne un identifiant unique à celle de l'invité avec `MediaSession.Builder(...).setId("guest")`, sinon Media3 refuse la seconde session (« Session ID must be unique »).
 
@@ -371,11 +407,93 @@ host.uploadMusic(file) { success -> }   // surcharge pour un java.io.File
 | Formats acceptés | `.mp3` `.flac` `.wav` `.ogg` `.aac` `.m4a` `.opus` |
 | Taille maximale | 200 Mo |
 
-> ℹ️ **V3** : `onResult` reçoit `false` après 3 tentatives infructueuses, et le SDK vérifie que le serveur sert bien le fichier avant de considérer la piste comme envoyée. Quand le serveur refuse explicitement le fichier (trop volumineux, format non pris en charge, application non autorisée), la raison est transmise à `onError`.
+> ℹ️ Depuis la V3, `onResult` reçoit `false` après 3 tentatives infructueuses, et le SDK vérifie que le serveur sert bien le fichier avant de considérer la piste comme envoyée. Quand le serveur refuse explicitement le fichier (trop volumineux, format non pris en charge, application non autorisée), la raison est transmise à `onError`.
 
 ---
 
-## 7. Certification de l'application
+## 7. Compte Audio_Arcade lié (pseudo vérifié)
+
+*Nouveau en V4.* L'utilisateur peut lier son appareil à son **compte Audio_Arcade**. Son **pseudo réservé** devient alors un pseudo **vérifié** : il apparaît comme tel chez l'hôte, et **personne d'autre ne peut l'utiliser**.
+
+### Principe
+
+| Étape | Qui | Action |
+|---|---|---|
+| 1 | L'utilisateur | Se connecte avec Discord sur la page [Mon compte](https://audio-arcade.fr.eu.org/compte), réserve son pseudo, puis clique sur **Lier une application** : un code s'affiche (valable **10 minutes**, à usage unique). |
+| 2 | Ton application | Envoie ce code au SDK avec `ArcadeShare.linkAccount`. Le SDK obtient un **jeton secret** et le stocke chiffré sur l'appareil. |
+| 3 | Le SDK | Vérifie le jeton **automatiquement** à chaque connexion, avant de créer ou de rejoindre une room. |
+| 4 | L'utilisateur | Peut révoquer l'application à tout moment depuis **Applications connectées** sur son compte. À la connexion suivante, le SDK supprime le jeton local (`onLinkRevoked`). |
+
+**Règle de protection** : un pseudo réservé ne peut être utilisé dans une room que par son propriétaire vérifié. Toute autre personne reçoit l'erreur `Nom réservé`. Les comptes invités du site ne peuvent pas lier d'application (ils n'ont pas de pseudo réservé).
+
+> ℹ️ Le jeton est lié à **ton application** et à **l'appareil** : volé, il est inutilisable ailleurs. Chaque appareil et chaque application a sa propre liaison, visible et révocable séparément (par exemple « Windows » et « Android » pour la même application).
+
+### Rien à implémenter pour le stockage
+
+Contrairement à Windows, **tu n'as aucun stockage à fournir** : le SDK chiffre le jeton avec une clé du Keystore Android (non exportable) et le range dans ses propres préférences. Si le jeton devient illisible (sauvegarde restaurée sur un autre appareil, clé supprimée…), il est ignoré, comme si aucune liaison n'existait. Il n'est jamais journalisé.
+
+### 1. Lier l'appareil
+
+À appeler depuis tes paramètres, avec le code saisi par l'utilisateur (après `ArcadeShare.init`) :
+
+```kotlin
+ArcadeShare.linkAccount(codeSaisi) { ok, handle, error ->   // appelé sur le thread principal
+    if (ok) {
+        // lié : handle = pseudo vérifié (null si l'utilisateur n'a pas encore réservé de pseudo)
+    } else {
+        // error : « Code invalide ou expiré », « Le serveur n'a pas répondu. », …
+    }
+}
+```
+
+> ℹ️ `linkAccount` ouvre sa propre connexion temporaire : tu n'as pas besoin d'être dans une room, ni d'avoir démarré le partage.
+
+### 2. Utiliser le pseudo vérifié
+
+Une fois le compte lié, **la vérification est automatique** : le SDK vérifie le jeton juste après l'authentification, avant d'envoyer `create_room`, `rejoin_room` ou `join_room` — pour l'hôte comme pour l'invité, y compris après une reconnexion automatique. Un serveur injoignable ou muet n'empêche jamais de continuer (délai maximum : 8 secondes).
+
+```kotlin
+ArcadeShare.hasStoredLink    // un jeton est enregistré sur l'appareil (pas forcément encore vérifié)
+ArcadeShare.isLinked         // vrai après une vérification réussie (liaison ou connexion à une room)
+ArcadeShare.linkedHandle     // pseudo réservé vérifié, ou null
+ArcadeShare.linkedName       // nom du compte lié
+
+ArcadeShare.onLinkRevoked = {   // thread principal
+    // l'utilisateur a révoqué l'application : le jeton local est supprimé
+}
+// Remets ArcadeShare.onLinkRevoked = null quand l'écran se ferme
+
+ArcadeShare.unlink()         // oublie la liaison sur cet appareil
+```
+
+> ℹ️ `isLinked`, `linkedHandle` et `linkedName` ne sont renseignés qu'**après** une vérification réussie sur la connexion en cours. Pour afficher l'état dans tes paramètres avant toute connexion, utilise `hasStoredLink` et mémorise toi-même le dernier pseudo vérifié.
+
+Côté invité, le pseudo vérifié de l'hôte est fourni par `GuestCallback.onHostHandle` (section 5).
+
+### 3. Imposer le pseudo dans ton interface
+
+**Recommandation** : quand un compte est lié et possède un pseudo réservé, utilise ce pseudo à la place de la saisie libre, et verrouille le champ. Le serveur refuse de toute façon un pseudo réservé à qui n'en est pas propriétaire : le verrouillage n'est qu'un confort, la protection est côté serveur.
+
+> ℹ️ La comparaison des pseudos ignore les majuscules, les accents et les séparateurs : `La_TNT`, `la-tnt` et `latnt` désignent le même pseudo.
+
+### Plateforme déclarée
+
+Chaque liaison indique sa plateforme, affichée dans **Applications connectées** : le SDK Android déclare automatiquement « Android ». Rien à configurer.
+
+### Récapitulatif
+
+| Élément | Rôle |
+|---|---|
+| `ArcadeShare.linkAccount(code, onResult)` | Lie l'appareil avec le code saisi par l'utilisateur |
+| `ArcadeShare.unlink()` | Oublie la liaison sur cet appareil (pour la révoquer côté serveur : « Applications connectées » du compte) |
+| `ArcadeShare.hasStoredLink` | Un jeton est enregistré sur l'appareil |
+| `ArcadeShare.isLinked` · `linkedHandle` · `linkedName` | État de la liaison, après vérification |
+| `ArcadeShare.onLinkRevoked` | Liaison révoquée par l'utilisateur : le jeton local a été supprimé |
+| `GuestCallback.onHostHandle(handle)` | Pseudo vérifié de l'hôte, vu par l'invité |
+
+---
+
+## 8. Certification de l'application
 
 Le serveur sait si ton application est certifiée par Audio_Arcade. Cette information est **purement informative** : une application non certifiée continue de fonctionner. Elle te permet d'afficher un indicateur (accueil, paramètres, page des codes…) pour que l'utilisateur sache à qui il confie son code de session.
 
@@ -421,7 +539,7 @@ override fun onHostCertification(certified: Boolean?) {
 
 ---
 
-## 8. Référence des méthodes
+## 9. Référence des méthodes
 
 ### `ArcadeShare` (objet)
 
@@ -442,10 +560,15 @@ override fun onHostCertification(certified: Boolean?) {
 | `fetchMyRooms(onResult)` | Liste les rooms permanentes de l'appareil | Hôte |
 | `deleteRoom(code, onResult)` | Supprime une room côté serveur | Hôte |
 | `createGuest(username)` | Crée une instance invité | Invité |
+| `linkAccount(code, onResult)` | Lie l'appareil à un compte Audio_Arcade avec le code saisi. `onResult(ok, handle, error)` sur le thread principal — **V4** | Tous |
+| `unlink()` | Oublie la liaison sur cet appareil — **V4** | Tous |
+| `hasStoredLink` | Un jeton de liaison est enregistré sur l'appareil (propriété) — **V4** | Tous |
+| `isLinked` / `linkedHandle` / `linkedName` | État de la liaison, après vérification (propriétés) — **V4** | Tous |
+| `onLinkRevoked` | Callback : liaison révoquée par l'utilisateur, jeton local supprimé — **V4** | Tous |
 | `release()` | Coupe toutes les connexions (les rooms sont conservées) | Tous |
 | `isCertified` / `onCertificationChanged` | Certification de ton application (`Boolean?`) et callback de changement | Tous |
 | `fetchCertificationStatus(nom, onResult)` | Statut public d'une application d'après son nom | Tous |
-| `version()` | Version du SDK | Tous |
+| `version()` | Version du SDK (`"4.0.0"`) | Tous |
 
 ### `ArcadeShareHost`
 
@@ -468,14 +591,14 @@ override fun onHostCertification(certified: Boolean?) {
 | Méthode | Description |
 |---|---|
 | `setCallback(cb)` | Définit le callback d'événements |
-| `joinRoom(code)` | Rejoint une room |
+| `joinRoom(code)` | Envoie la demande d'entrée dans une room (confirmée par `onRoomJoined`) |
 | `leaveRoom()` | Quitte la room (room conservée) |
 | `getStreamUrl()` | URL du flux audio de la room courante |
 | `release()` | Libère l'instance |
 
 ---
 
-## 9. Référence des événements
+## 10. Référence des événements
 
 ### `HostCallback`
 
@@ -484,19 +607,22 @@ override fun onHostCertification(certified: Boolean?) {
 | `onRoomCreated` | `RoomCode` | Room créée ou réactivée (aussi après une reconnexion) |
 | `onGuestJoined` | `RoomCode, String username` | Un invité rejoint |
 | `onGuestLeft` | `RoomCode, String username` | Un invité quitte |
-| `onError` | `String message` | Erreur (room pleine, appId refusé, connexion impossible, fichier refusé à l'envoi...) |
+| `onError` | `String message` | Erreur (room pleine, nom réservé, appId refusé, connexion impossible, fichier refusé à l'envoi...) |
 | `onDisconnected` | — | Connexion perdue |
 
 ### `GuestCallback`
 
 | Méthode | Paramètres | Déclenché quand |
 |---|---|---|
-| `onRoomJoined` | `String code, String hostName, Int guestCount, ShareState?` | Connexion à la room réussie |
+| `onRoomJoined` | `String code, String hostName, Int guestCount, ShareState?` | Connexion à la room réussie — **c'est la confirmation d'entrée** |
 | `onStateReceived` | `ShareState` | Nouvel état reçu de l'hôte |
 | `onHostCertification` | `Boolean?` | Juste avant `onRoomJoined` : application de l'hôte certifiée (`true`), non certifiée (`false`) ou inconnue (`null`) |
+| `onHostHandle` | `String?` | Juste avant `onRoomJoined` : pseudo vérifié de l'hôte (compte lié), ou `null` — **V4** |
 | `onHostLeft` | — | L'hôte a quitté ou est déconnecté |
-| `onError` | `String message` | Erreur reçue du serveur (room introuvable, room pleine...) |
-| `onDisconnected` | — | Connexion perdue |
+| `onError` | `String message` | Erreur reçue du serveur (room introuvable, room pleine, nom réservé...). Avant la confirmation d'entrée, elle signifie que l'entrée est **refusée** |
+| `onDisconnected` | — | Connexion perdue, reconnexion abandonnée |
+
+> ℹ️ `onHostCertification` et `onHostHandle` ont une implémentation par défaut (vide) : tes implémentations existantes de `GuestCallback` continuent de compiler sans changement.
 
 ### Modèle `RoomCode`
 
@@ -521,6 +647,29 @@ override fun onHostCertification(certified: Boolean?) {
 | `isPlaying` | `Boolean` | Lecture en cours côté hôte |
 | `nextTitle` | `String` | Titre suivant (optionnel) |
 | `timestamp` | `Long` | Horodatage Unix ms |
+
+---
+
+## 11. Migration depuis la V3 et historique
+
+### Migrer de la V3 vers la V4
+
+**Rien ne casse** : une application compilée contre la V3 continue de fonctionner. Pour profiter des nouveautés :
+
+1. Mets à jour la dépendance : `com.github.Audio-Arcade:ArcadeShare-Android:4.0.0` (ou le nouveau fichier AAR, en retirant l'ancien).
+2. Vérifie que `minSdk` vaut **23 ou plus** (Keystore Android).
+3. Pour les comptes liés et les pseudos vérifiés : ajoute un écran de liaison qui appelle `ArcadeShare.linkAccount` (section 7). Aucun stockage à implémenter.
+4. Si ce n'est pas déjà fait, gère la **confirmation d'entrée** côté invité avec `onRoomJoined` / `onError` (section 5) : un code de room invalide ne doit pas laisser l'application « dans une room ».
+5. Vérifie que ton projet ne référence **qu'une seule** version du SDK (Gradle ou AAR, pas les deux).
+
+> ℹ️ Les anciennes versions restent acceptées par le serveur tant qu'elles ne sont pas retirées. Une version dépréciée fonctionne, avec un avertissement dans le logcat.
+
+### Historique
+
+| Version | Nouveautés |
+|---|---|
+| **4.0.0** | Compte Audio_Arcade lié et pseudo vérifié (`linkAccount`, `unlink`, `hasStoredLink`, `isLinked`, `linkedHandle`, `linkedName`, `onLinkRevoked`), jeton chiffré par le Keystore. Protection des pseudos réservés. Plateforme déclarée automatiquement. `GuestCallback.onHostHandle`. |
+| **3.x** | Exposition de la certification (`isCertified`, `onCertificationChanged`, `fetchCertificationStatus`, `onHostCertification`). Vérification de l'envoi de la musique. `audioUrl` authentifiée. Reconnexion automatique. |
 
 ---
 
